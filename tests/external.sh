@@ -220,7 +220,6 @@ for server in \
 	"https://cloudflare-dns.com/dns-query" \
 	"https://dns.google/dns-query" \
 	"https://9.9.9.9/dns-query" \
-	"https://blitz.ahadns.com" \
 	"https://odvr.nic.cz/dns-query" \
 	;
 do
