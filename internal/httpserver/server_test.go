@@ -110,6 +110,36 @@ func TestJSONResolve(t *testing.T) {
 	}
 }
 
+func TestJSONResolveIncludesZeroAnswerTTL(t *testing.T) {
+	upstreamAddr := testutil.GetFreePort()
+	go testutil.ServeTestDNSServer(upstreamAddr,
+		testutil.MakeStaticHandler(t, "test. 0 A 1.1.1.1"))
+	testutil.WaitForDNSServer(upstreamAddr)
+
+	srv := &Server{Upstream: upstreamAddr}
+	resp := query(t, srv, "GET", "/resolve?name=test.&type=A", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("JSON query: expected http status ok, got %v", resp.StatusCode)
+	}
+
+	var got struct {
+		Answer []map[string]json.RawMessage `json:"Answer"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("failed to decode JSON response: %v", err)
+	}
+	if len(got.Answer) != 1 {
+		t.Fatalf("expected one JSON answer, got %+v", got.Answer)
+	}
+	ttl, ok := got.Answer[0]["TTL"]
+	if !ok {
+		t.Fatalf("expected zero TTL to be present in JSON answer: %+v", got.Answer[0])
+	}
+	if string(ttl) != "0" {
+		t.Fatalf("expected JSON answer TTL 0, got %s", ttl)
+	}
+}
+
 func TestQueryTypeSupportsNewAndNumericTypes(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
