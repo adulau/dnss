@@ -7,14 +7,17 @@ package httpserver
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	stdlog "log"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"blitiri.com.ar/go/dnss/internal/stats"
 	"blitiri.com.ar/go/dnss/internal/trace"
@@ -161,8 +164,9 @@ func (s *Server) resolveDoH(tr *trace.Trace, w http.ResponseWriter, dnsQuery []b
 	fromUp, err := exchange(tr, r, s.Upstream)
 	if err != nil {
 		stats.Inc("httpserver_errors_dns_exchange")
-		err = tr.Errorf("dns exchange error: %v", err)
-		http.Error(w, err.Error(), http.StatusFailedDependency)
+		status, msg := dnsExchangeHTTPError(err)
+		tr.Errorf("dns exchange error: %v", err)
+		http.Error(w, msg, status)
 		return
 	}
 
@@ -209,26 +213,53 @@ func servfail(req *dns.Msg) []byte {
 	return packed
 }
 
+const upstreamTimeout = 4 * time.Second
+
 func exchange(tr *trace.Trace, r *dns.Msg, addr string) (*dns.Msg, error) {
-	reply, err := dns.Exchange(r, addr)
-	if err == nil && !reply.Truncated {
-		tr.Printf("UDP exchange successful")
-		return reply, err
+	c := &dns.Client{
+		Net:     "udp",
+		Timeout: upstreamTimeout,
 	}
 
-	// If we had issues over UDP, or the message was truncated, retry over
-	// TCP. We don't try beyond that.
+	reply, _, err := c.Exchange(r, addr)
 	if err != nil {
 		tr.Printf("error on UDP exchange: %v", err)
-	} else if reply.Truncated {
-		tr.Printf("UDP exchange returned truncated reply: %v", reply.MsgHdr)
+		return nil, err
 	}
+	if !reply.Truncated {
+		tr.Printf("UDP exchange successful")
+		return reply, nil
+	}
+
+	// Retry over TCP only when the UDP response is truncated. Other UDP
+	// failures are returned as-is so the caller can report the actual upstream
+	// failure instead of masking it with a second TCP error.
+	tr.Printf("UDP exchange returned truncated reply: %v", reply.MsgHdr)
 	tr.Printf("retrying on TCP")
 
-	c := &dns.Client{
-		Net: "tcp",
+	c = &dns.Client{
+		Net:     "tcp",
+		Timeout: upstreamTimeout,
 	}
 
 	reply, _, err = c.Exchange(r, addr)
 	return reply, err
+}
+
+func dnsExchangeHTTPError(err error) (int, string) {
+	if isTimeout(err) {
+		stats.Inc("httpserver_errors_dns_exchange_timeout")
+		return http.StatusGatewayTimeout, "upstream DNS server timed out"
+	}
+
+	return http.StatusBadGateway, "upstream DNS exchange failed"
+}
+
+func isTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var timeoutErr net.Error
+	return errors.As(err, &timeoutErr) && timeoutErr.Timeout()
 }
