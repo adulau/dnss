@@ -18,10 +18,12 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"blitiri.com.ar/go/dnss/internal/dnsserver"
 	"blitiri.com.ar/go/dnss/internal/httpresolver"
 	"blitiri.com.ar/go/dnss/internal/httpserver"
+	"blitiri.com.ar/go/dnss/internal/stats"
 	"blitiri.com.ar/go/log"
 
 	// Register pprof handlers for monitoring and debugging.
@@ -67,6 +69,8 @@ var (
 
 	monitoringListenAddr = flag.String("monitoring_listen_addr", "",
 		"address to listen on for monitoring HTTP requests")
+	statsInterval = flag.Duration("stats_interval", 5*time.Minute,
+		"how often to print statistics to stderr (0 disables)")
 
 	// Deprecated flags that no longer make sense; we keep them for backwards
 	// compatibility but may be removed in the future.
@@ -89,6 +93,8 @@ func main() {
 	if *monitoringListenAddr != "" {
 		go monitoringServer(*monitoringListenAddr)
 	}
+
+	go stats.PeriodicallyReportToStderr(*statsInterval)
 
 	if !(*enableDNStoHTTPS || *enableHTTPStoDNS) {
 		log.Errorf("Need to set one of the following:")
