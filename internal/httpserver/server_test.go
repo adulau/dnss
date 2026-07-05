@@ -76,8 +76,8 @@ func TestBasic(t *testing.T) {
 	srv.Upstream = "localhost:0"
 	resp = query(t, srv, "GET",
 		"/ignored?dns=q80BAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB", "")
-	if resp.StatusCode != http.StatusFailedDependency {
-		t.Errorf("bad upstream test: expected failed dependency, got %v",
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("bad upstream test: expected bad gateway, got %v",
 			resp.StatusCode)
 	}
 }
@@ -151,5 +151,29 @@ func TestTLSHandshakeErrorsAreCountedAndSuppressed(t *testing.T) {
 	}
 	if buf.String() != otherMsg {
 		t.Fatalf("non-TLS-handshake error was not forwarded: %q", buf.String())
+	}
+}
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "timeout for testing" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
+
+func TestDNSExchangeHTTPError(t *testing.T) {
+	status, msg := dnsExchangeHTTPError(timeoutError{})
+	if status != http.StatusGatewayTimeout {
+		t.Fatalf("timeout status: got %v, want %v", status, http.StatusGatewayTimeout)
+	}
+	if msg != "upstream DNS server timed out" {
+		t.Fatalf("timeout message: got %q", msg)
+	}
+
+	status, msg = dnsExchangeHTTPError(errors.New("connection refused"))
+	if status != http.StatusBadGateway {
+		t.Fatalf("non-timeout status: got %v, want %v", status, http.StatusBadGateway)
+	}
+	if msg != "upstream DNS exchange failed" {
+		t.Fatalf("non-timeout message: got %q", msg)
 	}
 }
