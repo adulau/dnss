@@ -7,11 +7,13 @@ package httpserver
 
 import (
 	"encoding/base64"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"mime"
 	"net/http"
 
+	"blitiri.com.ar/go/dnss/internal/stats"
 	"blitiri.com.ar/go/dnss/internal/trace"
 
 	"blitiri.com.ar/go/log"
@@ -50,6 +52,8 @@ func (s *Server) ListenAndServe() {
 
 // Resolve incoming DoH requests.
 func (s *Server) Resolve(w http.ResponseWriter, req *http.Request) {
+	stats.Inc("httpserver_requests_total")
+	stats.Inc("httpserver_requests_method_" + req.Method)
 	tr := trace.New("httpserver", "/resolve")
 	defer tr.Finish()
 	tr.Printf("from:%v", req.RemoteAddr)
@@ -62,10 +66,12 @@ func (s *Server) Resolve(w http.ResponseWriter, req *http.Request) {
 	//  - POST requests have a content-type = application/dns-message.
 	if req.Method == "GET" && req.FormValue("dns") != "" {
 		tr.Printf("DoH:GET")
+		stats.Inc("httpserver_doh_get")
 		dnsQuery, err := base64.RawURLEncoding.DecodeString(
 			req.FormValue("dns"))
 		if err != nil {
 			tr.Error(err)
+			stats.Inc("httpserver_errors_decode_get")
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -78,16 +84,19 @@ func (s *Server) Resolve(w http.ResponseWriter, req *http.Request) {
 		ct, _, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
 		if err != nil {
 			tr.Error(err)
+			stats.Inc("httpserver_errors_content_type")
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		if ct == "application/dns-message" {
 			tr.Printf("DoH:POST")
+			stats.Inc("httpserver_doh_post")
 			// Limit the size of request to 4k.
 			dnsQuery, err := ioutil.ReadAll(io.LimitReader(req.Body, 4092))
 			if err != nil {
 				tr.Error(err)
+				stats.Inc("httpserver_errors_read_body")
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -99,6 +108,7 @@ func (s *Server) Resolve(w http.ResponseWriter, req *http.Request) {
 
 	// Could not found how to handle this request.
 	tr.Errorf("unknown request type")
+	stats.Inc("httpserver_errors_unknown_request_type")
 	http.Error(w, "unknown request type", http.StatusUnsupportedMediaType)
 }
 
@@ -107,31 +117,41 @@ func (s *Server) resolveDoH(tr *trace.Trace, w http.ResponseWriter, dnsQuery []b
 	r := &dns.Msg{}
 	err := r.Unpack(dnsQuery)
 	if err != nil {
+		stats.Inc("httpserver_errors_unpack_dns_query")
 		tr.Error(err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	tr.Question(r.Question)
+	if len(r.Question) == 1 {
+		stats.Inc(fmt.Sprintf("httpserver_queries_qtype_%d", r.Question[0].Qtype))
+		stats.Inc(fmt.Sprintf("httpserver_queries_qclass_%d", r.Question[0].Qclass))
+	}
 
 	// Do the DNS request, get the reply.
 	fromUp, err := exchange(tr, r, s.Upstream)
 	if err != nil {
+		stats.Inc("httpserver_errors_dns_exchange")
 		err = tr.Errorf("dns exchange error: %v", err)
 		http.Error(w, err.Error(), http.StatusFailedDependency)
 		return
 	}
 
 	if fromUp == nil {
+		stats.Inc("httpserver_errors_no_upstream_response")
 		err = tr.Errorf("no response from upstream")
 		http.Error(w, err.Error(), http.StatusRequestTimeout)
 		return
 	}
 
 	tr.Answer(fromUp)
+	stats.Inc("httpserver_responses_total")
+	stats.Inc(fmt.Sprintf("httpserver_responses_rcode_%d", fromUp.Rcode))
 
 	packed, err := fromUp.Pack()
 	if err != nil {
+		stats.Inc("httpserver_errors_pack_reply")
 		err = tr.Errorf("cannot pack reply: %v", err)
 		http.Error(w, err.Error(), http.StatusFailedDependency)
 		return
@@ -141,7 +161,9 @@ func (s *Server) resolveDoH(tr *trace.Trace, w http.ResponseWriter, dnsQuery []b
 	w.Header().Set("Content-type", "application/dns-message")
 	// TODO: set cache-control based on the response.
 	w.WriteHeader(http.StatusOK)
-	w.Write(packed)
+	if _, err := w.Write(packed); err != nil {
+		stats.Inc("httpserver_errors_write_response")
+	}
 }
 
 func exchange(tr *trace.Trace, r *dns.Msg, addr string) (*dns.Msg, error) {

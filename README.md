@@ -23,6 +23,8 @@ It can also act as a DoH server, in case you want end to end control.
 * HTTP(s) proxy support, autodetected from the environment.
 * Monitoring HTTP server, with exported variables and tracing to help
   debugging.
+* Periodic statistics on stderr for query volume, transports, response codes,
+  cache activity, and resolver errors.
 * Separate resolution for specific domains, useful for home networks with
   local DNS servers.
 
@@ -69,6 +71,22 @@ sudo semanage fcontext -a -t bin_t "/usr/local/bin/dnss"
 sudo restorecon -v /usr/local/bin/dnss
 ```
 
+
+## Statistics
+
+By default, `dnss` prints a statistics snapshot to stderr every 5 minutes.
+The interval can be changed with `-stats_interval`, and setting it to `0`
+disables periodic output. The same counters are also exported through the
+monitoring server's `/debug/vars` endpoint when `-monitoring_listen_addr` is
+configured.
+
+```shell
+# Print statistics every minute.
+dnss -enable_dns_to_https -stats_interval=1m
+
+# Disable periodic statistics output.
+dnss -enable_dns_to_https -stats_interval=0
+```
 
 ## Examples
 

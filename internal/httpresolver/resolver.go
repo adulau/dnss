@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"blitiri.com.ar/go/dnss/internal/dnsserver"
+	"blitiri.com.ar/go/dnss/internal/stats"
 	"blitiri.com.ar/go/dnss/internal/trace"
 
 	"blitiri.com.ar/go/log"
@@ -199,8 +200,13 @@ func (r *httpsResolver) maybeRotateClient() {
 }
 
 func (r *httpsResolver) Query(req *dns.Msg, tr *trace.Trace) (*dns.Msg, error) {
+	stats.Inc("httpresolver_queries_total")
+	if len(req.Question) == 1 {
+		stats.Inc(fmt.Sprintf("httpresolver_queries_qtype_%d", req.Question[0].Qtype))
+	}
 	packed, err := req.Pack()
 	if err != nil {
+		stats.Inc("httpresolver_errors_pack_query")
 		return nil, fmt.Errorf("cannot pack query: %v", err)
 	}
 
@@ -220,11 +226,13 @@ func (r *httpsResolver) Query(req *dns.Msg, tr *trace.Trace) (*dns.Msg, error) {
 		bytes.NewReader(packed))
 	r.setClientError(err)
 	if err != nil {
+		stats.Inc("httpresolver_errors_post")
 		return nil, fmt.Errorf("POST failed: %v", err)
 	}
 	tr.Printf("%s  %s", hr.Proto, hr.Status)
 	defer hr.Body.Close()
 
+	stats.Inc(fmt.Sprintf("httpresolver_http_status_%d", hr.StatusCode))
 	if hr.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Response status: %s", hr.Status)
 	}
@@ -236,20 +244,25 @@ func (r *httpsResolver) Query(req *dns.Msg, tr *trace.Trace) (*dns.Msg, error) {
 	}
 
 	if ct != "application/dns-message" {
+		stats.Inc("httpresolver_errors_content_type")
 		return nil, fmt.Errorf("unknown response content type %q", ct)
 	}
 
 	respRaw, err := ioutil.ReadAll(io.LimitReader(hr.Body, 64*1024))
 	if err != nil {
+		stats.Inc("httpresolver_errors_read_body")
 		return nil, fmt.Errorf("error reading from body: %v", err)
 	}
 
 	respDNS := &dns.Msg{}
 	err = respDNS.Unpack(respRaw)
 	if err != nil {
+		stats.Inc("httpresolver_errors_unpack_response")
 		return nil, fmt.Errorf("error unpacking response: %v", err)
 	}
 
+	stats.Inc("httpresolver_responses_total")
+	stats.Inc(fmt.Sprintf("httpresolver_responses_rcode_%d", respDNS.Rcode))
 	return respDNS, nil
 }
 

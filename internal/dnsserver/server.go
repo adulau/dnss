@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 
+	dnssstats "blitiri.com.ar/go/dnss/internal/stats"
 	"blitiri.com.ar/go/dnss/internal/trace"
 
 	"blitiri.com.ar/go/log"
@@ -63,6 +64,8 @@ func New(addr string, resolver Resolver, unqUpstream string, serverOverrides Dom
 
 // Handler for the incoming DNS queries.
 func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
+	dnssstats.Inc("dnsserver_queries_total")
+	dnssstats.Inc("dnsserver_queries_transport_" + w.RemoteAddr().Network())
 	tr := trace.New("dnsserver.Handler",
 		w.RemoteAddr().Network()+" "+w.RemoteAddr().String())
 	defer tr.Finish()
@@ -73,13 +76,19 @@ func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
 	// We only support single-question queries.
 	if len(r.Question) != 1 {
 		tr.Printf("len(Q) != 1, failing")
+		dnssstats.Inc("dnsserver_queries_invalid_question_count")
+		dnssstats.Inc("dnsserver_replies_rcode_2")
 		dns.HandleFailed(w, r)
 		return
 	}
 
 	// If the domain has a server override, forward to it instead.
+	dnssstats.Inc(fmt.Sprintf("dnsserver_queries_qtype_%d", r.Question[0].Qtype))
+	dnssstats.Inc(fmt.Sprintf("dnsserver_queries_qclass_%d", r.Question[0].Qclass))
+
 	override, ok := s.serverOverrides.GetMostSpecific(r.Question[0].Name)
 	if ok {
+		dnssstats.Inc("dnsserver_queries_override")
 		tr.Printf("override found: %q", override)
 		u, err := dns.Exchange(r, override)
 		if err == nil {
@@ -87,6 +96,8 @@ func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
 			s.writeReply(tr, w, r, u)
 		} else {
 			tr.Printf("override server returned error: %v", err)
+			dnssstats.Inc("dnsserver_errors_override")
+			dnssstats.Inc("dnsserver_replies_rcode_2")
 			dns.HandleFailed(w, r)
 		}
 
@@ -100,6 +111,7 @@ func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
 	useUnqUpstream := s.unqUpstream != "" &&
 		dns.CountLabel(r.Question[0].Name) <= 1
 	if useUnqUpstream {
+		dnssstats.Inc("dnsserver_queries_unqualified_upstream")
 		u, err := dns.Exchange(r, s.unqUpstream)
 		if err == nil {
 			tr.Printf("used unqualified upstream")
@@ -107,6 +119,8 @@ func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
 			s.writeReply(tr, w, r, u)
 		} else {
 			tr.Printf("unqualified upstream error: %v", err)
+			dnssstats.Inc("dnsserver_errors_unqualified_upstream")
+			dnssstats.Inc("dnsserver_replies_rcode_2")
 			dns.HandleFailed(w, r)
 		}
 
@@ -118,12 +132,15 @@ func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
 	oldid := r.Id
 	r.Id = <-newID
 
+	dnssstats.Inc("dnsserver_queries_resolver")
 	fromUp, err := s.resolver.Query(r, tr)
 	if err != nil {
 		log.Infof("resolver query error: %v", err)
 		tr.Error(err)
+		dnssstats.Inc("dnsserver_errors_resolver")
 
 		r.Id = oldid
+		dnssstats.Inc("dnsserver_replies_rcode_2")
 		dns.HandleFailed(w, r)
 		return
 	}
@@ -135,6 +152,7 @@ func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func (s *Server) writeReply(tr *trace.Trace, w dns.ResponseWriter, r, reply *dns.Msg) {
+	dnssstats.Inc(fmt.Sprintf("dnsserver_replies_rcode_%d", reply.Rcode))
 	if w.RemoteAddr().Network() == "udp" {
 		// We need to check if the response fits.
 		// UDP by default has a maximum of 512 bytes. This can be extended via
@@ -146,9 +164,14 @@ func (s *Server) writeReply(tr *trace.Trace, w dns.ResponseWriter, r, reply *dns
 		}
 		reply.Truncate(max)
 		tr.Printf("UDP max:%d truncated:%v", max, reply.Truncated)
+		if reply.Truncated {
+			dnssstats.Inc("dnsserver_replies_truncated")
+		}
 	}
 
-	w.WriteMsg(reply)
+	if err := w.WriteMsg(reply); err != nil {
+		dnssstats.Inc("dnsserver_errors_write_reply")
+	}
 }
 
 // ListenAndServe launches the DNS proxy.
