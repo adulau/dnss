@@ -1,0 +1,47 @@
+name: "release"
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Install static build toolchain
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build release binaries
+        run: |
+          set -euxo pipefail
+          version="${GITHUB_REF_NAME}"
+          mkdir -p dist
+
+          go build -o "dist/dnss-${version}-linux-amd64" .
+
+          CGO_ENABLED=1 CC=musl-gcc go build \
+            -ldflags="-linkmode external -extldflags '-static'" \
+            -o "dist/dnss-${version}-linux-amd64-static" \
+            .
+
+          chmod +x dist/dnss-*
+          sha256sum dist/dnss-* > "dist/dnss-${version}-checksums.txt"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
