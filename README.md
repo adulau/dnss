@@ -45,7 +45,7 @@ sudo apt install dnss
 To clone the repository and build the binary:
 
 ```shell
-git clone https://blitiri.com.ar/repos/dnss
+git clone https://github.com/adulau/dnss
 cd dnss
 go build
 ```
