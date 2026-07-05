@@ -1,12 +1,15 @@
 package httpserver
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"blitiri.com.ar/go/dnss/internal/stats"
 	"blitiri.com.ar/go/dnss/internal/testutil"
 )
 
@@ -79,3 +82,38 @@ func (errorReadCloser) Read(p []byte) (int, error) {
 	return 0, errors.New("error for testing")
 }
 func (errorReadCloser) Close() error { return nil }
+
+func TestTLSHandshakeErrorsAreCountedAndSuppressed(t *testing.T) {
+	buf := &strings.Builder{}
+	w := tlsHandshakeErrorCounter{fallback: buf}
+
+	msg := "2026/07/05 15:05:18 http: TLS handshake error from 127.0.0.1:56222: EOF\n"
+	n, err := w.Write([]byte(msg))
+	if err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+	if n != len(msg) {
+		t.Fatalf("unexpected write length: got %d, want %d", n, len(msg))
+	}
+	if buf.String() != "" {
+		t.Fatalf("TLS handshake error was not suppressed: %q", buf.String())
+	}
+
+	statsBuf := &bytes.Buffer{}
+	stats.Report(statsBuf, time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC))
+	if !strings.Contains(statsBuf.String(), `"httpserver_tls_handshake_errors_total": 1`) {
+		t.Fatalf("TLS handshake error was not counted: %q", statsBuf.String())
+	}
+
+	otherMsg := "2026/07/05 15:05:18 http: other server error\n"
+	n, err = w.Write([]byte(otherMsg))
+	if err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+	if n != len(otherMsg) {
+		t.Fatalf("unexpected write length: got %d, want %d", n, len(otherMsg))
+	}
+	if buf.String() != otherMsg {
+		t.Fatalf("non-TLS-handshake error was not forwarded: %q", buf.String())
+	}
+}

@@ -10,8 +10,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	stdlog "log"
 	"mime"
 	"net/http"
+	"os"
+	"strings"
 
 	"blitiri.com.ar/go/dnss/internal/stats"
 	"blitiri.com.ar/go/dnss/internal/trace"
@@ -36,8 +39,9 @@ func (s *Server) ListenAndServe() {
 	mux.HandleFunc("/dns-query", s.Resolve)
 	mux.HandleFunc("/resolve", s.Resolve)
 	srv := http.Server{
-		Addr:    s.Addr,
-		Handler: mux,
+		Addr:     s.Addr,
+		Handler:  mux,
+		ErrorLog: stdlog.New(tlsHandshakeErrorCounter{fallback: os.Stderr}, "", stdlog.LstdFlags),
 	}
 
 	log.Infof("HTTPS listening on %s", s.Addr)
@@ -48,6 +52,29 @@ func (s *Server) ListenAndServe() {
 		err = srv.ListenAndServeTLS(s.CertFile, s.KeyFile)
 	}
 	log.Fatalf("HTTPS exiting: %s", err)
+}
+
+// tlsHandshakeErrorCounter records the TLS handshake errors emitted by net/http
+// without forwarding them to stderr. Other server errors are preserved.
+type tlsHandshakeErrorCounter struct {
+	fallback io.Writer
+}
+
+func (w tlsHandshakeErrorCounter) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "http: TLS handshake error") {
+		stats.Inc("httpserver_tls_handshake_errors_total")
+		return len(p), nil
+	}
+
+	if w.fallback == nil {
+		return len(p), nil
+	}
+
+	n, err := w.fallback.Write(p)
+	if n < len(p) && err == nil {
+		n = len(p)
+	}
+	return n, err
 }
 
 // Resolve incoming DoH requests.
