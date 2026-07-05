@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -79,6 +80,58 @@ func TestBasic(t *testing.T) {
 	if resp.StatusCode != http.StatusBadGateway {
 		t.Errorf("bad upstream test: expected bad gateway, got %v",
 			resp.StatusCode)
+	}
+}
+
+func TestJSONResolve(t *testing.T) {
+	upstreamAddr := testutil.GetFreePort()
+	go testutil.ServeTestDNSServer(upstreamAddr,
+		testutil.MakeStaticHandler(t, "test. A 1.1.1.1"))
+	testutil.WaitForDNSServer(upstreamAddr)
+
+	srv := &Server{Upstream: upstreamAddr}
+	resp := query(t, srv, "GET", "/resolve?name=test.&type=A", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("JSON query: expected http status ok, got %v", resp.StatusCode)
+	}
+	if got, want := resp.Header.Get("Content-Type"), "application/dns-json"; got != want {
+		t.Fatalf("JSON query content type: got %q, want %q", got, want)
+	}
+
+	var got jsonDNSMessage
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("failed to decode JSON response: %v", err)
+	}
+	if got.Status != dns.RcodeSuccess || len(got.Question) != 1 || len(got.Answer) != 1 {
+		t.Fatalf("unexpected JSON response: %+v", got)
+	}
+	if got.Question[0].Type != dns.TypeA || got.Answer[0].Data != "1.1.1.1" {
+		t.Fatalf("unexpected JSON question/answer: %+v", got)
+	}
+}
+
+func TestQueryTypeSupportsNewAndNumericTypes(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want uint16
+	}{
+		{"", dns.TypeA},
+		{"A", dns.TypeA},
+		{"https", dns.TypeHTTPS},
+		{"SVCB", dns.TypeSVCB},
+		{"65", dns.TypeHTTPS},
+	} {
+		got, err := queryType(tc.in)
+		if err != nil {
+			t.Fatalf("queryType(%q) returned unexpected error: %v", tc.in, err)
+		}
+		if got != tc.want {
+			t.Fatalf("queryType(%q): got %d, want %d", tc.in, got, tc.want)
+		}
+	}
+
+	if _, err := queryType("not-a-type"); err == nil {
+		t.Fatalf("queryType accepted an invalid type")
 	}
 }
 
