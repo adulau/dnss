@@ -7,6 +7,7 @@ package httpserver
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,6 +95,7 @@ func (s *Server) Resolve(w http.ResponseWriter, req *http.Request) {
 
 	// Identify DoH requests:
 	//  - GET requests have a "dns=" query parameter.
+	//  - GET requests with "name=" use the JSON DNS API.
 	//  - POST requests have a content-type = application/dns-message.
 	if req.Method == "GET" && req.FormValue("dns") != "" {
 		tr.Printf("DoH:GET")
@@ -107,6 +110,13 @@ func (s *Server) Resolve(w http.ResponseWriter, req *http.Request) {
 		}
 
 		s.resolveDoH(tr, w, dnsQuery)
+		return
+	}
+
+	if req.Method == "GET" && req.FormValue("name") != "" {
+		tr.Printf("JSON:GET")
+		stats.Inc("httpserver_json_get")
+		s.resolveJSON(tr, w, req)
 		return
 	}
 
@@ -140,6 +150,97 @@ func (s *Server) Resolve(w http.ResponseWriter, req *http.Request) {
 	tr.Errorf("unknown request type")
 	stats.Inc("httpserver_errors_unknown_request_type")
 	http.Error(w, "unknown request type", http.StatusUnsupportedMediaType)
+}
+
+// jsonDNSMessage is the response format used by the JSON DNS API.
+type jsonDNSMessage struct {
+	Status   int         `json:"Status"`
+	TC       bool        `json:"TC"`
+	RD       bool        `json:"RD"`
+	RA       bool        `json:"RA"`
+	AD       bool        `json:"AD"`
+	CD       bool        `json:"CD"`
+	Question []jsonDNSRR `json:"Question,omitempty"`
+	Answer   []jsonDNSRR `json:"Answer,omitempty"`
+}
+
+type jsonDNSRR struct {
+	Name string `json:"name"`
+	Type uint16 `json:"type"`
+	TTL  uint32 `json:"TTL,omitempty"`
+	Data string `json:"data,omitempty"`
+}
+
+// resolveJSON resolves GET requests using the JSON DNS API used by common DoH
+// clients on /resolve (name=example.com&type=A). It supports every query type
+// known to the dns package, including newer types such as SVCB and HTTPS.
+func (s *Server) resolveJSON(tr *trace.Trace, w http.ResponseWriter, req *http.Request) {
+	qtype, err := queryType(req.FormValue("type"))
+	if err != nil {
+		tr.Error(err)
+		stats.Inc("httpserver_errors_json_query_type")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	r := &dns.Msg{}
+	r.SetQuestion(dns.Fqdn(req.FormValue("name")), qtype)
+	if req.FormValue("cd") == "1" || strings.EqualFold(req.FormValue("cd"), "true") {
+		r.CheckingDisabled = true
+	}
+
+	fromUp, err := exchange(tr, r, s.Upstream)
+	if err != nil {
+		stats.Inc("httpserver_errors_dns_exchange")
+		status, msg := dnsExchangeHTTPError(err)
+		tr.Errorf("dns exchange error: %v", err)
+		http.Error(w, msg, status)
+		return
+	}
+	if fromUp == nil {
+		stats.Inc("httpserver_errors_no_upstream_response")
+		err = tr.Errorf("no response from upstream")
+		http.Error(w, err.Error(), http.StatusRequestTimeout)
+		return
+	}
+
+	w.Header().Set("Content-type", "application/dns-json")
+	if err := json.NewEncoder(w).Encode(newJSONDNSMessage(fromUp)); err != nil {
+		stats.Inc("httpserver_errors_write_response")
+	}
+}
+
+func queryType(qtype string) (uint16, error) {
+	if qtype == "" {
+		return dns.TypeA, nil
+	}
+	if n, err := strconv.ParseUint(qtype, 10, 16); err == nil {
+		return uint16(n), nil
+	}
+	if t, ok := dns.StringToType[strings.ToUpper(qtype)]; ok {
+		return t, nil
+	}
+	return 0, fmt.Errorf("unknown DNS query type %q", qtype)
+}
+
+func newJSONDNSMessage(m *dns.Msg) jsonDNSMessage {
+	j := jsonDNSMessage{Status: m.Rcode, TC: m.Truncated, RD: m.RecursionDesired, RA: m.RecursionAvailable, AD: m.AuthenticatedData, CD: m.CheckingDisabled}
+	for _, q := range m.Question {
+		j.Question = append(j.Question, jsonDNSRR{Name: q.Name, Type: q.Qtype})
+	}
+	for _, a := range m.Answer {
+		h := a.Header()
+		j.Answer = append(j.Answer, jsonDNSRR{Name: h.Name, Type: h.Rrtype, TTL: h.Ttl, Data: rrData(a)})
+	}
+	return j
+}
+
+func rrData(rr dns.RR) string {
+	fields := strings.Fields(rr.String())
+	if len(fields) <= 4 {
+		return ""
+	}
+	return strings.Join(fields[4:], " ")
 }
 
 // Resolve DNS over HTTPS requests, as specified in RFC 8484.
