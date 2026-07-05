@@ -40,7 +40,6 @@ use, using Google's public resolvers (and easily changed via configuration).
 sudo apt install dnss
 ```
 
-
 ### Manual install
 
 To clone the repository and build the binary:
@@ -71,6 +70,11 @@ sudo semanage fcontext -a -t bin_t "/usr/local/bin/dnss"
 sudo restorecon -v /usr/local/bin/dnss
 ```
 
+### Manual install (static compilation with musl)
+
+```json
+CGO_ENABLED=1 CC=musl-gcc   go build -ldflags="-linkmode external -extldflags '-static'"
+```
 
 ## Statistics
 
