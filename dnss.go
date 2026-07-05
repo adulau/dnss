@@ -71,6 +71,10 @@ var (
 		"address to listen on for monitoring HTTP requests")
 	statsInterval = flag.Duration("stats_interval", 5*time.Minute,
 		"how often to print statistics to stderr (0 disables)")
+	topDomainsStatsInterval = flag.Duration("top_domains_stats_interval", time.Minute,
+		"how often to print top queried domain statistics to stderr (0 disables)")
+	topDomainsStatsCount = flag.Int("top_domains_stats_count", 25,
+		"number of top queried domains to print in top-domain statistics")
 
 	// Deprecated flags that no longer make sense; we keep them for backwards
 	// compatibility but may be removed in the future.
@@ -95,6 +99,8 @@ func main() {
 	}
 
 	go stats.PeriodicallyReportToStderr(*statsInterval)
+	go stats.PeriodicallyReportTopDomainsToStderr(
+		*topDomainsStatsInterval, *topDomainsStatsCount)
 
 	if !(*enableDNStoHTTPS || *enableHTTPStoDNS) {
 		log.Errorf("Need to set one of the following:")

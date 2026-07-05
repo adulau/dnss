@@ -152,6 +152,7 @@ func (s *Server) resolveDoH(tr *trace.Trace, w http.ResponseWriter, dnsQuery []b
 
 	tr.Question(r.Question)
 	if len(r.Question) == 1 {
+		stats.RecordDomainQuery(r.Question[0].Name)
 		stats.Inc(fmt.Sprintf("httpserver_queries_qtype_%d", r.Question[0].Qtype))
 		stats.Inc(fmt.Sprintf("httpserver_queries_qclass_%d", r.Question[0].Qclass))
 	}
