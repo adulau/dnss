@@ -1,4 +1,4 @@
-module blitiri.com.ar/go/dnss
+module github.com/adulau/dnss
 
 go 1.25.0
 

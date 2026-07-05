@@ -42,7 +42,7 @@ jobs:
         run: docker run --name test1 dnss-test
       - name: Extract coverage results
         run: >
-          docker cp test1:/go/src/blitiri.com.ar/go/dnss/.coverage/merged.out
+          docker cp test1:/go/src/github.com/adulau/dnss/.coverage/merged.out
           .
       - name: Upload coverage results
         uses: codecov/codecov-action@v4

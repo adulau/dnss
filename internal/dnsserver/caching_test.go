@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"blitiri.com.ar/go/dnss/internal/testutil"
-	"blitiri.com.ar/go/dnss/internal/trace"
+	"github.com/adulau/dnss/internal/testutil"
+	"github.com/adulau/dnss/internal/trace"
 
 	"github.com/miekg/dns"
 )

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"blitiri.com.ar/go/dnss/internal/trace"
+	"github.com/adulau/dnss/internal/trace"
 
 	"github.com/miekg/dns"
 )

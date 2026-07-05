@@ -9,7 +9,7 @@ import (
 	"blitiri.com.ar/go/log"
 	"github.com/miekg/dns"
 
-	nettrace "blitiri.com.ar/go/dnss/internal/nettrace"
+	nettrace "github.com/adulau/dnss/internal/nettrace"
 )
 
 // A Trace represents an active request.

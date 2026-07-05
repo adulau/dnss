@@ -9,8 +9,8 @@ import (
 	"net"
 	"sync"
 
-	dnssstats "blitiri.com.ar/go/dnss/internal/stats"
-	"blitiri.com.ar/go/dnss/internal/trace"
+	dnssstats "github.com/adulau/dnss/internal/stats"
+	"github.com/adulau/dnss/internal/trace"
 
 	"blitiri.com.ar/go/log"
 	"blitiri.com.ar/go/systemd"

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"blitiri.com.ar/go/dnss/internal/stats"
-	"blitiri.com.ar/go/dnss/internal/testutil"
+	"github.com/adulau/dnss/internal/stats"
+	"github.com/adulau/dnss/internal/testutil"
 	"github.com/miekg/dns"
 )
 

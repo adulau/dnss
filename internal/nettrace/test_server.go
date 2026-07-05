@@ -11,7 +11,7 @@ import (
 
 	_ "net/http/pprof"
 
-	"blitiri.com.ar/go/dnss/internal/nettrace"
+	"github.com/adulau/dnss/internal/nettrace"
 )
 
 func main() {

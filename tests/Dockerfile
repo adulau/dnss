@@ -11,7 +11,7 @@
 
 FROM golang:latest
 
-WORKDIR /go/src/blitiri.com.ar/go/dnss
+WORKDIR /go/src/github.com/adulau/dnss
 
 # Make debconf/frontend non-interactive, to avoid distracting output about the
 # lack of $TERM.

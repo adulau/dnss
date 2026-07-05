@@ -10,11 +10,11 @@ import (
 	"sync"
 	"testing"
 
-	"blitiri.com.ar/go/dnss/internal/dnsserver"
-	"blitiri.com.ar/go/dnss/internal/httpresolver"
-	"blitiri.com.ar/go/dnss/internal/httpserver"
-	"blitiri.com.ar/go/dnss/internal/testutil"
 	"blitiri.com.ar/go/log"
+	"github.com/adulau/dnss/internal/dnsserver"
+	"github.com/adulau/dnss/internal/httpresolver"
+	"github.com/adulau/dnss/internal/httpserver"
+	"github.com/adulau/dnss/internal/testutil"
 	"github.com/miekg/dns"
 )
 
