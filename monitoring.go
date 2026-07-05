@@ -10,8 +10,8 @@ import (
 	"runtime/debug"
 	"time"
 
-	"blitiri.com.ar/go/dnss/internal/nettrace"
 	"blitiri.com.ar/go/log"
+	"github.com/adulau/dnss/internal/nettrace"
 )
 
 var (

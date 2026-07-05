@@ -6,7 +6,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"blitiri.com.ar/go/dnss/internal/testutil"
+	"github.com/adulau/dnss/internal/testutil"
 )
 
 // Tests for the DNS server.

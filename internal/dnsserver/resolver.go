@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"blitiri.com.ar/go/dnss/internal/trace"
+	"github.com/adulau/dnss/internal/trace"
 
 	"blitiri.com.ar/go/log"
 	"github.com/miekg/dns"

@@ -21,8 +21,8 @@ import (
 	"strings"
 	"time"
 
-	"blitiri.com.ar/go/dnss/internal/stats"
-	"blitiri.com.ar/go/dnss/internal/trace"
+	"github.com/adulau/dnss/internal/stats"
+	"github.com/adulau/dnss/internal/trace"
 
 	"blitiri.com.ar/go/log"
 	"github.com/miekg/dns"
