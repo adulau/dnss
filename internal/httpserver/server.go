@@ -165,10 +165,10 @@ type jsonDNSMessage struct {
 }
 
 type jsonDNSRR struct {
-	Name string `json:"name"`
-	Type uint16 `json:"type"`
-	TTL  uint32 `json:"TTL,omitempty"`
-	Data string `json:"data,omitempty"`
+	Name string  `json:"name"`
+	Type uint16  `json:"type"`
+	TTL  *uint32 `json:"TTL,omitempty"`
+	Data string  `json:"data,omitempty"`
 }
 
 // resolveJSON resolves GET requests using the JSON DNS API used by common DoH
@@ -230,7 +230,8 @@ func newJSONDNSMessage(m *dns.Msg) jsonDNSMessage {
 	}
 	for _, a := range m.Answer {
 		h := a.Header()
-		j.Answer = append(j.Answer, jsonDNSRR{Name: h.Name, Type: h.Rrtype, TTL: h.Ttl, Data: rrData(a)})
+		ttl := h.Ttl
+		j.Answer = append(j.Answer, jsonDNSRR{Name: h.Name, Type: h.Rrtype, TTL: &ttl, Data: rrData(a)})
 	}
 	return j
 }
