@@ -145,8 +145,8 @@ func (s *Server) resolveDoH(tr *trace.Trace, w http.ResponseWriter, dnsQuery []b
 	err := r.Unpack(dnsQuery)
 	if err != nil {
 		stats.Inc("httpserver_errors_unpack_dns_query")
-		tr.Error(err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		tr.Printf("invalid DNS query: %v", err)
+		http.Error(w, "invalid DNS query", http.StatusBadRequest)
 		return
 	}
 
@@ -180,18 +180,33 @@ func (s *Server) resolveDoH(tr *trace.Trace, w http.ResponseWriter, dnsQuery []b
 	packed, err := fromUp.Pack()
 	if err != nil {
 		stats.Inc("httpserver_errors_pack_reply")
-		err = tr.Errorf("cannot pack reply: %v", err)
-		http.Error(w, err.Error(), http.StatusFailedDependency)
+		tr.Errorf("cannot pack upstream reply: %v", err)
+		writeDNSResponse(w, servfail(r))
 		return
 	}
 
-	// Write the response back.
+	writeDNSResponse(w, packed)
+}
+
+func writeDNSResponse(w http.ResponseWriter, packed []byte) {
 	w.Header().Set("Content-type", "application/dns-message")
 	// TODO: set cache-control based on the response.
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(packed); err != nil {
 		stats.Inc("httpserver_errors_write_response")
 	}
+}
+
+func servfail(req *dns.Msg) []byte {
+	resp := &dns.Msg{}
+	resp.SetRcode(req, dns.RcodeServerFailure)
+	packed, err := resp.Pack()
+	if err != nil {
+		// This should not happen for a response built from a successfully
+		// unpacked request. Keep the HTTP response valid if it does.
+		return []byte{}
+	}
+	return packed
 }
 
 func exchange(tr *trace.Trace, r *dns.Msg, addr string) (*dns.Msg, error) {

@@ -3,6 +3,7 @@ package httpserver
 import (
 	"bytes"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"blitiri.com.ar/go/dnss/internal/stats"
 	"blitiri.com.ar/go/dnss/internal/testutil"
+	"github.com/miekg/dns"
 )
 
 func TestBasic(t *testing.T) {
@@ -39,6 +41,22 @@ func TestBasic(t *testing.T) {
 			resp.StatusCode)
 	}
 
+	// Invalid DNS payloads should not expose low-level parser errors (for
+	// example, "dns: bad rdata") in the HTTP response body.
+	resp = query(t, srv, "GET",
+		"/ignored?dns=EjQBAAABAAAAAAAAB2V4YW1wbGWAAAEAAQ", "")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("bad rdata test: expected bad request, got %v",
+			resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read bad rdata response body: %v", err)
+	}
+	if got, want := strings.TrimSpace(string(body)), "invalid DNS query"; got != want {
+		t.Errorf("bad rdata response body: got %q, want %q", got, want)
+	}
+
 	// Error reading request body.
 	{
 		req := httptest.NewRequest("POST", "/ignored", nil)
@@ -61,6 +79,24 @@ func TestBasic(t *testing.T) {
 	if resp.StatusCode != http.StatusFailedDependency {
 		t.Errorf("bad upstream test: expected failed dependency, got %v",
 			resp.StatusCode)
+	}
+}
+
+func TestServfailResponse(t *testing.T) {
+	req := &dns.Msg{}
+	req.SetQuestion("example.com.", dns.TypeA)
+
+	resp := &dns.Msg{}
+	if err := resp.Unpack(servfail(req)); err != nil {
+		t.Fatalf("failed to unpack SERVFAIL response: %v", err)
+	}
+
+	if !resp.Response {
+		t.Fatalf("SERVFAIL response is not marked as a response: %v", resp.MsgHdr)
+	}
+	if resp.Rcode != dns.RcodeServerFailure {
+		t.Fatalf("unexpected response code: got %v, want %v",
+			resp.Rcode, dns.RcodeServerFailure)
 	}
 }
 
