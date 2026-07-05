@@ -83,6 +83,7 @@ func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	// If the domain has a server override, forward to it instead.
+	dnssstats.RecordDomainQuery(r.Question[0].Name)
 	dnssstats.Inc(fmt.Sprintf("dnsserver_queries_qtype_%d", r.Question[0].Qtype))
 	dnssstats.Inc(fmt.Sprintf("dnsserver_queries_qclass_%d", r.Question[0].Qclass))
 

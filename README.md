@@ -84,12 +84,20 @@ disables periodic output. The same counters are also exported through the
 monitoring server's `/debug/vars` endpoint when `-monitoring_listen_addr` is
 configured.
 
+`dnss` also prints the most queried domains/hostnames to stderr every minute.
+The interval can be changed with `-top_domains_stats_interval`, setting it to
+`0` disables this output, and `-top_domains_stats_count` controls how many
+domains are included (25 by default).
+
 ```shell
 # Print statistics every minute.
 dnss -enable_dns_to_https -stats_interval=1m
 
 # Disable periodic statistics output.
 dnss -enable_dns_to_https -stats_interval=0
+
+# Print the top 10 queried domains every 30 seconds.
+dnss -enable_dns_to_https -top_domains_stats_interval=30s -top_domains_stats_count=10
 ```
 
 ## Examples
