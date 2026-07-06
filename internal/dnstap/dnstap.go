@@ -12,7 +12,13 @@ import (
 	"github.com/miekg/dns"
 )
 
-const contentType = "protobuf:dnstap.Dnstap"
+const (
+	contentType = "protobuf:dnstap.Dnstap"
+
+	fstrmControlReady            = 4
+	fstrmControlStart            = 2
+	fstrmControlFieldContentType = 1
+)
 
 // Writer asynchronously writes dnstap frames to a destination.
 type Writer struct {
@@ -82,12 +88,12 @@ func (w *Writer) run() {
 		}
 
 		log.Infof("dnstap exporting to %s:%s", w.network, w.addr)
-		if err := writeControl(conn, 6, contentType); err != nil { // READY
+		if err := writeControl(conn, fstrmControlReady, contentType); err != nil { // READY
 			log.Infof("dnstap READY failed: %v", err)
 			conn.Close()
 			continue
 		}
-		if err := writeControl(conn, 4, contentType); err != nil { // START
+		if err := writeControl(conn, fstrmControlStart, contentType); err != nil { // START
 			log.Infof("dnstap START failed: %v", err)
 			conn.Close()
 			continue
@@ -139,12 +145,17 @@ func (r record) frame() ([]byte, error) {
 	return dt, nil
 }
 
-func writeControl(conn net.Conn, typ uint64, ct string) error {
-	payload := []byte{}
-	payload = appendVarint(payload, 1, typ)
+func writeControl(conn net.Conn, typ uint32, ct string) error {
+	payload := make([]byte, 4, 12+len(ct))
+	binary.BigEndian.PutUint32(payload, typ)
 	if ct != "" {
-		payload = appendBytes(payload, 2, []byte(ct))
+		var field [8]byte
+		binary.BigEndian.PutUint32(field[0:4], fstrmControlFieldContentType)
+		binary.BigEndian.PutUint32(field[4:8], uint32(len(ct)))
+		payload = append(payload, field[:]...)
+		payload = append(payload, ct...)
 	}
+
 	var hdr [8]byte
 	binary.BigEndian.PutUint32(hdr[0:4], 0)
 	binary.BigEndian.PutUint32(hdr[4:8], uint32(len(payload)))
