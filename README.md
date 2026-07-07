@@ -25,6 +25,7 @@ It can also act as a DoH server, in case you want end to end control.
   debugging.
 * Periodic statistics on stderr for query volume, transports, response codes,
   cache activity, and resolver errors.
+* Optional dnstap export for DNS-to-HTTPS query/response traffic.
 * Separate resolution for specific domains, useful for home networks with
   local DNS servers.
 
@@ -119,6 +120,12 @@ dnss -enable_dns_to_https -https_upstream="https://dns.google/dns-query"
 # Use the default HTTPS URL for all resolutions, except for domain "myhome"
 # which is resolved via a local DNS server.
 dnss -enable_dns_to_https -dns_server_for_domain="myhome:10.0.1.1:53"
+
+# Export DNS-to-HTTPS query/response traffic as dnstap to a Unix socket.
+dnss -enable_dns_to_https -dnstap_destination="unix:///run/dnstap.sock"
+
+# Export dnstap to a TCP collector.
+dnss -enable_dns_to_https -dnstap_destination="tcp://127.0.0.1:6000"
 ```
 
 ### HTTPS server

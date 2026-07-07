@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
+	"github.com/adulau/dnss/internal/dnstap"
 	dnssstats "github.com/adulau/dnss/internal/stats"
 	"github.com/adulau/dnss/internal/trace"
 
@@ -49,6 +51,7 @@ type Server struct {
 	unqUpstream     string
 	serverOverrides DomainMap
 	resolver        Resolver
+	dnstap          *dnstap.Writer
 }
 
 // New *Server, which will listen on addr, use resolver as the backend
@@ -62,8 +65,14 @@ func New(addr string, resolver Resolver, unqUpstream string, serverOverrides Dom
 	}
 }
 
+// SetDnstap configures optional dnstap export for DNS query/response pairs.
+func (s *Server) SetDnstap(w *dnstap.Writer) {
+	s.dnstap = w
+}
+
 // Handler for the incoming DNS queries.
 func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
+	queryTime := time.Now()
 	dnssstats.Inc("dnsserver_queries_total")
 	dnssstats.Inc("dnsserver_queries_transport_" + w.RemoteAddr().Network())
 	tr := trace.New("dnsserver.Handler",
@@ -94,7 +103,7 @@ func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
 		u, err := dns.Exchange(r, override)
 		if err == nil {
 			tr.Answer(u)
-			s.writeReply(tr, w, r, u)
+			s.writeReply(tr, w, r, u, queryTime)
 		} else {
 			tr.Printf("override server returned error: %v", err)
 			dnssstats.Inc("dnsserver_errors_override")
@@ -117,7 +126,7 @@ func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
 		if err == nil {
 			tr.Printf("used unqualified upstream")
 			tr.Answer(u)
-			s.writeReply(tr, w, r, u)
+			s.writeReply(tr, w, r, u, queryTime)
 		} else {
 			tr.Printf("unqualified upstream error: %v", err)
 			dnssstats.Inc("dnsserver_errors_unqualified_upstream")
@@ -149,10 +158,13 @@ func (s *Server) Handler(w dns.ResponseWriter, r *dns.Msg) {
 	tr.Answer(fromUp)
 
 	fromUp.Id = oldid
-	s.writeReply(tr, w, r, fromUp)
+	s.writeReply(tr, w, r, fromUp, queryTime)
 }
 
-func (s *Server) writeReply(tr *trace.Trace, w dns.ResponseWriter, r, reply *dns.Msg) {
+func (s *Server) writeReply(tr *trace.Trace, w dns.ResponseWriter, r, reply *dns.Msg, queryTime time.Time) {
+	if s.dnstap != nil {
+		s.dnstap.Capture(r, reply, w.LocalAddr(), w.RemoteAddr(), w.RemoteAddr().Network(), queryTime, time.Now())
+	}
 	dnssstats.Inc(fmt.Sprintf("dnsserver_replies_rcode_%d", reply.Rcode))
 	if w.RemoteAddr().Network() == "udp" {
 		// We need to check if the response fits.

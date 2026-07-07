@@ -22,6 +22,7 @@ import (
 
 	"blitiri.com.ar/go/log"
 	"github.com/adulau/dnss/internal/dnsserver"
+	"github.com/adulau/dnss/internal/dnstap"
 	"github.com/adulau/dnss/internal/httpresolver"
 	"github.com/adulau/dnss/internal/httpserver"
 	"github.com/adulau/dnss/internal/stats"
@@ -51,7 +52,9 @@ var (
 		"URL of upstream DNS-to-HTTP server")
 	httpsClientCAFile = flag.String("https_client_cafile", "",
 		"CA file to use for the HTTPS client")
-	enableCache = flag.Bool("enable_cache", true, "enable the local cache")
+	enableCache       = flag.Bool("enable_cache", true, "enable the local cache")
+	dnstapDestination = flag.String("dnstap_destination", "",
+		"optional dnstap destination for DNS-to-HTTPS queries (tcp://host:port or unix:///path)")
 
 	enableHTTPStoDNS = flag.Bool("enable_https_to_dns", false,
 		"enable HTTPS-to-DNS proxy")
@@ -134,6 +137,11 @@ func main() {
 
 		dth := dnsserver.New(*dnsListenAddr, resolver,
 			*dnsUnqualifiedUpstream, overrides)
+		if *dnstapDestination != "" {
+			dt := dnstap.New(*dnstapDestination)
+			dt.Start()
+			dth.SetDnstap(dt)
+		}
 
 		wg.Add(1)
 		go func() {
